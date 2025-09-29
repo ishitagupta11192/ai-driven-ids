@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: ai-ids-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./federated:/app/federated
+    networks:
+      - ai-ids-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend
+  frontend:
+    build: ./frontend
+    container_name: ai-ids-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ai-ids-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Federated Learning Client 1
+  client-1:
+    build: ./backend
+    container_name: ai-ids-client-1
+    command: python federated/client_runner.py --client-id client_1 --data-path data/client_1_data.csv
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - CLIENT_ID=client_1
+      - COORDINATOR_URL=http://backend:8000
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./federated:/app/federated
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ai-ids-network
+    restart: unless-stopped
+
+  # Federated Learning Client 2
+  client-2:
+    build: ./backend
+    container_name: ai-ids-client-2
+    command: python federated/client_runner.py --client-id client_2 --data-path data/client_2_data.csv
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - CLIENT_ID=client_2
+      - COORDINATOR_URL=http://backend:8000
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./federated:/app/federated
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ai-ids-network
+    restart: unless-stopped
+
+  # Federated Learning Client 3
+  client-3:
+    build: ./backend
+    container_name: ai-ids-client-3
+    command: python federated/client_runner.py --client-id client_3 --data-path data/client_3_data.csv
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - CLIENT_ID=client_3
+      - COORDINATOR_URL=http://backend:8000
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./federated:/app/federated
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ai-ids-network
+    restart: unless-stopped
+
+networks:
+  ai-ids-network:
+    driver: bridge
+
+volumes:
+  ai-ids-data:
+  ai-ids-models:
