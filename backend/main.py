@@ -17,7 +17,6 @@ import asyncio
 from datetime import datetime
 import os
 import sys
-import io
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -230,23 +229,9 @@ async def upload_csv(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Model not loaded")
     
     try:
-        # Read CSV file with robust decoding
+        # Read CSV file
         contents = await file.read()
-        decoded_text = None
-        for encoding in ["utf-8", "utf-8-sig", "latin-1"]:
-            try:
-                decoded_text = contents.decode(encoding)
-                break
-            except Exception:
-                continue
-        if decoded_text is None:
-            raise HTTPException(status_code=400, detail="Unable to decode CSV file. Use UTF-8 encoding.")
-
-        df = pd.read_csv(io.StringIO(decoded_text))
-
-        # Validate non-empty
-        if df is None or df.empty:
-            raise HTTPException(status_code=400, detail="CSV file is empty")
+        df = pd.read_csv(pd.io.common.StringIO(contents.decode('utf-8')))
         
         # Validate columns
         required_columns = preprocessor.feature_columns
@@ -261,11 +246,7 @@ async def upload_csv(file: UploadFile = File(...)):
         processed_data = preprocessor.transform(df[required_columns])
         
         # Create sequences
-        sequence_length = 10
-        sequences, _ = create_sequences(processed_data, np.zeros(len(processed_data)), sequence_length=sequence_length)
-
-        if sequences is None or len(sequences) == 0:
-            raise HTTPException(status_code=400, detail=f"Not enough rows to form sequences. Need at least {sequence_length} rows.")
+        sequences, _ = create_sequences(processed_data, np.zeros(len(processed_data)))
         
         # Perform inference
         tensor_data = torch.FloatTensor(sequences)
@@ -277,38 +258,20 @@ async def upload_csv(file: UploadFile = File(...)):
         pred_labels = preprocessor.inverse_transform_labels(predictions.numpy())
         
         # Create results DataFrame
-        # Align sequence-based predictions back to original rows by padding first (sequence_length-1)
-        pad_size = sequence_length - 1
-        pred_list = pred_labels.tolist()
-        conf_array = confidence.numpy()
-        try:
-            conf_list = conf_array.squeeze().tolist()
-        except Exception:
-            # Fallback in case confidence already a list
-            conf_list = list(conf_array)
-
-        aligned_predictions = [None] * pad_size + pred_list
-        aligned_confidence = [None] * pad_size + conf_list
-
-        # Ensure lengths do not exceed original rows (safety clamp)
-        aligned_predictions = aligned_predictions[:len(df)]
-        aligned_confidence = aligned_confidence[:len(df)]
-
         results_df = df.copy()
-        results_df['prediction'] = aligned_predictions
-        results_df['confidence'] = aligned_confidence
+        results_df['prediction'] = pred_labels
+        results_df['confidence'] = confidence.numpy()
         
         # Calculate statistics
-        # Count attacks on predicted rows; treat non-predicted rows as normal for summary
-        attack_count = sum(1 for pred in pred_list if pred != 'normal')
-        total_rows = len(df)
+        attack_count = sum(1 for pred in pred_labels if pred != 'normal')
+        total_count = len(pred_labels)
         
         return {
             "message": "File processed successfully",
-            "total_samples": total_rows,
+            "total_samples": total_count,
             "attack_samples": attack_count,
-            "normal_samples": max(total_rows - attack_count, 0),
-            "attack_rate": (attack_count / total_rows) if total_rows > 0 else 0.0,
+            "normal_samples": total_count - attack_count,
+            "attack_rate": attack_count / total_count,
             "results": results_df.to_dict('records')[:100]  # Return first 100 results
         }
         
