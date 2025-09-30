@@ -298,7 +298,10 @@ function Inference() {
       const formData = new FormData();
       formData.append('file', uploadedFile);
 
-      const response = await fetch('/api/upload-csv', {
+      const url = process.env.REACT_APP_API_URL 
+        ? `${process.env.REACT_APP_API_URL}/upload-csv`
+        : '/api/upload-csv';
+      const response = await fetch(url, {
         method: 'POST',
         body: formData,
       });
@@ -308,8 +311,14 @@ function Inference() {
         setResults(data);
         toast.success('File processed successfully!');
       } else {
-        const error = await response.json();
-        toast.error(error.detail || 'Failed to process file');
+        let errorDetail = 'Failed to process file';
+        try {
+          const error = await response.json();
+          errorDetail = error.detail || error.message || errorDetail;
+        } catch (e) {
+          // Ignore JSON parse errors
+        }
+        toast.error(errorDetail);
       }
     } catch (error) {
       toast.error('Error processing file');
@@ -329,12 +338,17 @@ function Inference() {
 
     const csvContent = [
       ['Sample', 'Prediction', 'Confidence', 'Timestamp'],
-      ...results.results.map((result, index) => [
-        index + 1,
-        result.prediction,
-        (result.confidence * 100).toFixed(2) + '%',
-        result.timestamp || new Date().toISOString()
-      ])
+      ...results.results.map((result, index) => {
+        const confidenceVal = typeof result.confidence === 'number' ? result.confidence : 0;
+        const predictionVal = result.prediction || 'N/A';
+        const ts = result.timestamp || new Date().toISOString();
+        return [
+          index + 1,
+          predictionVal,
+          (confidenceVal * 100).toFixed(2) + '%',
+          ts
+        ];
+      })
     ].map(row => row.join(',')).join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -480,14 +494,14 @@ function Inference() {
                     <TableCell>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <ConfidenceBar>
-                          <ConfidenceFill confidence={result.confidence} />
+                          <ConfidenceFill confidence={typeof result.confidence === 'number' ? result.confidence : 0} />
                         </ConfidenceBar>
                         <span style={{ fontSize: '0.875rem', minWidth: '3rem' }}>
-                          {(result.confidence * 100).toFixed(1)}%
+                          {((typeof result.confidence === 'number' ? result.confidence : 0) * 100).toFixed(1)}%
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell>{result.duration?.toFixed(2) || 'N/A'}</TableCell>
+                    <TableCell>{typeof result.duration === 'number' ? result.duration.toFixed(2) : 'N/A'}</TableCell>
                     <TableCell>{result.protocol_type || 'N/A'}</TableCell>
                     <TableCell>{result.service || 'N/A'}</TableCell>
                   </TableRow>
